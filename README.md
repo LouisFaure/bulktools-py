@@ -2,6 +2,15 @@
 
 Analysis pipeline for bulk data. From fastq to anndata containing count matrix.
 
+
+## Installation
+
+```
+pip install git+https://github.com/LouisFaure/bulktools-py.git
+```
+
+## Usage
+
 ```
 usage: bt [-h] [--fq_path FQ_PATH] [--star_ref STAR_REF] [--gtf GTF] [--n_threads N_THREADS] [--adata_out ADATA_OUT]
 

@@ -6,6 +6,8 @@ Analysis pipeline for bulk data. From fastq to anndata containing count matrix.
 ## Installation
 
 ```
+conda create -n bulktools -c bioconda -c defaults star subread python=3.8 -y
+conda activate bulktools
 pip install git+https://github.com/LouisFaure/bulktools-py.git
 ```
 

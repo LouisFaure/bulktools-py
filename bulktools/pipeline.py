@@ -15,6 +15,7 @@ import anndata
 import argparse
 from argparse import RawTextHelpFormatter
 from functools import partial
+from shutil import which
 
 import logging
 from rich.logging import RichHandler
@@ -110,19 +111,30 @@ def fc2adata_par(out):
     adata.write_h5ad(out)
 
 def main():
+    console = Console()
+    console.print("bulktools 0.1",style="bold")
     args = parser.parse_args()
     manager = Manager()
     return_dict = manager.dict()
+    
+    if which("STAR") is None:
+        log.error("STAR not installed!")
+        sys.exit(1)
+        
+    if which("featureCounts") is None:
+        log.error("subread not installed!")
+        sys.exit(1)
+    
     if args.star_ref is not None:
         star_ref = args.star_ref
     else:
-        print("STAR ref missing!\n", file=sys.stderr)
+        log.error("STAR ref missing!")
         parser.print_help(sys.stderr)
         sys.exit(1)
     if args.gtf is not None:
         gtf = args.gtf
     else:
-        print("GTF missing!\n", file=sys.stderr)
+        log.error("GTF missing!")
         parser.print_help(sys.stderr)
         sys.exit(1)
 
@@ -132,7 +144,9 @@ def main():
     cpuCount = os.cpu_count()
     nfq=len(glob(os.path.join(fq_path,"*.gz")))
     
-    console = Console()
+    if nfq == 0:
+        log.error("No fastq detected! (path: %s)" %fq_path)
+        sys.exit(1)
     
     console.print("Pipeline parameters:", style="bold")
     console.print("fastq files path: %s" %os.path.abspath(fq_path))

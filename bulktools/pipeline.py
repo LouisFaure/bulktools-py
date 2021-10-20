@@ -11,7 +11,7 @@ from multiprocessing import Pool, Process, Manager
 import os
 from pandas.errors import EmptyDataError
 import pandas as pd
-import scanpy as sc
+import anndata
 import argparse
 from argparse import RawTextHelpFormatter
 from functools import partial
@@ -20,7 +20,7 @@ import logging
 from rich.logging import RichHandler
 FORMAT = "%(message)s"
 logging.basicConfig(
-    level="NOTSET", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+    level="INFO", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
 )
 
 log = logging.getLogger("rich")
@@ -106,7 +106,7 @@ def fc2adata_par(out):
     pool = Pool()
     fcs=pool.map(fc2adata, glob("fc/*.txt"))
     allcounts=pd.concat(fcs,axis=1)
-    adata=sc.AnnData(allcounts.T)
+    adata=anndata.AnnData(allcounts.T)
     adata.write_h5ad(out)
 
 def main():

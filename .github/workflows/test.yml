@@ -1,10 +1,10 @@
-name: Install and Load
+name: Install and Test
 
 on:
   push:
 
 jobs:
-  install_and_load:
+  install_and_test:
 
     runs-on: ubuntu-latest
     strategy:
@@ -22,7 +22,7 @@ jobs:
     - name: download test files
       shell: bash -l {0}
       run: |
-         wget https://github.com/LouisFaure/bulktools-py/raw/main/test/fastq.tar && tar xvf fastq
+         wget https://github.com/LouisFaure/bulktools-py/raw/main/test/fastq.tar && tar xvf fastq.tar
          wget https://github.com/LouisFaure/bulktools-py/raw/main/test/genes.gtf.gz
          wget https://github.com/LouisFaure/bulktools-py/raw/main/test/star_test.tar.gz && tar xvf star_test.tar.gz
     - name: Install dependencies

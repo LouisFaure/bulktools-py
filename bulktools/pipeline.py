@@ -16,6 +16,15 @@ import argparse
 from argparse import RawTextHelpFormatter
 from functools import partial
 
+import logging
+from rich.logging import RichHandler
+FORMAT = "%(message)s"
+logging.basicConfig(
+    level="NOTSET", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+)
+
+log = logging.getLogger("rich")
+
 fqcounter = os.path.join(__path__[0], "fqcount")
 
 help = 'Full bulk pipeline, from fastq to adata count matrix!\n'\
@@ -49,25 +58,23 @@ def runcom(c):
     out=subprocess.check_output(c.split())
     return int(out)
    
-def run_star(n_threads,star_ref,name,fq):
+def run_star(n_threads,star_ref,fq):
     name=fq.split("/")[1].split("_")[0]
     
     runstar="STAR --runThreadN %s --limitBAMsortRAM 10000000000 --genomeLoad LoadAndKeep --genomeDir %s --readFilesIn %s --outFileNamePrefix aligned/%s_ --readFilesCommand zcat --outSAMtype BAM SortedByCoordinate --outSAMunmapped Within --outSAMattributes Standard" %(n_threads,star_ref,fq,name)
     proc=subprocess.Popen(runstar.split(),
-                          stdout=subprocess.DEVNULL,
-                          stderr=subprocess.STDOUT)
+                          stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE)
     proc.wait()
-    
-def run_star_par(n_threads,star_ref,name,fq_path):
-    pool = Pool()
-    func = partial(run_star, n_threads,star_ref,name)
-    pool.map(func, glob(os.path.join(fq_path,"*.gz")))
+    return proc.returncode,proc.communicate()[1]
 
 
 def gather_starlogs(f):
     a_file = open(f, "r")
     lines = a_file.readlines()
     if len(lines)<=2:
+        return 0
+    if len(lines)==3 & lines[-1] == 'ALL DONE!\n':
         return 0
     else:
         l = 2 if lines[-1] == 'ALL DONE!\n' else 1
@@ -104,7 +111,8 @@ def fc2adata_par(out):
 
 def main():
     args = parser.parse_args()
-    
+    manager = Manager()
+    return_dict = manager.dict()
     if args.star_ref is not None:
         star_ref = args.star_ref
     else:
@@ -150,7 +158,6 @@ def main():
     
     
     with console.status("[bold green]Counting number of reads...") as status:
-        manager = Manager()
         return_dict = manager.dict()
         console.log("Loading reference")
         p1 = Process(target=ref_loader,args=(star_ref,))
@@ -165,6 +172,13 @@ def main():
         p2.join()    
 
     console.log("Aligning reads") 
+    
+    def run_star_par(n_threads,star_ref,fq_path):
+        pool = Pool()
+        fqs = glob(os.path.join(fq_path,"*.gz"))
+        func = partial(run_star, n_threads,star_ref)
+        outs = pool.map(func, fqs)
+        return_dict["run_star"] = dict(zip(fqs,outs))
 
     with Progress(SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -180,19 +194,41 @@ def main():
             name = k.split("/")[1].split("_")[0]
             dct_task[k] = progress.add_task("[green]Aligning reads for sample %s..."%name, 
                                             total=v)
-        p3 = Process(target=run_star_par,args=(n_threads,star_ref,name,fq_path,))
+        #return_dict = manager.dict()
+        p3 = Process(target=run_star_par,args=(n_threads,star_ref,fq_path,))
         p3.start()
 
-        while len(glob("aligned/*.progress.out")) != len(glob(os.path.join(fq_path,"*.gz"))):
+        #while len(glob("aligned/*.progress.out")) != len(glob(os.path.join(fq_path,"*.gz"))):
+        #    time.sleep(1)
+        
+        while "run_star" not in return_dict:
             time.sleep(1)
 
-        prog=True
-        while prog:
+        prog = True
+        err = False
+        errmsg=[]
+        while prog:                      
             for k,v in dct_task.items():
-                name = k.split("/")[1].split("_")[0]
-                progress.update(v,completed=gather_starlogs("aligned/%s_Log.progress.out" %name))
-                if len(glob("aligned/%s_Log.final.out" %name))==1:
-                    progress.update(v,completed=dct_nreads[k])
+                if return_dict["run_star"][k][0]!=0:
+                    progress.update(v,visible=False)
+                    err = True
+                    errmsg.append(return_dict["run_star"][k][1].decode('utf-8'))
+                elif len(glob("aligned/*.progress.out")) != len(glob(os.path.join(fq_path,"*.gz"))):
+                    name = k.split("/")[1].split("_")[0]
+                    progress.update(v,completed=gather_starlogs("aligned/%s_Log.progress.out" %name))
+                    if len(glob("aligned/%s_Log.final.out" %name))==1:
+                        progress.update(v,completed=dct_nreads[k])
+            
+            if err:
+                time.sleep(.1)
+                for e in errmsg:
+                    log.error(e)
+                log.info("exiting...")
+                p3b = Process(target=ref_remover,args=(star_ref,))
+                p3b.start()
+                p3b.join()
+                sys.exit(0)
+            
             if len(glob("aligned/*final*")) == len(glob(os.path.join(fq_path,"*.gz"))):
                 prog = False
             progress.refresh()

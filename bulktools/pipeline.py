@@ -1,4 +1,5 @@
-from . import __path__
+from . import __path__, __version__
+version = __version__
 import sys
 import subprocess
 from glob import glob
@@ -113,7 +114,7 @@ def fc2adata_par(out,samples):
 
 def main():
     console = Console()
-    console.print("bulktools 0.1",style="bold")
+    console.print("bulktools %s" %version,style="bold")
     args = parser.parse_args()
     manager = Manager()
     return_dict = manager.dict()

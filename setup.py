@@ -21,7 +21,7 @@ class CustomBuild(build):
 setup(
     name="bulktools",
     description="Python package running bulk pipeline",
-    version='0.1',
+    version='0.2',
     setup_requires=["setuptools"],
     package_dir={"bulktools": "bulktools"},
     packages=find_packages(),

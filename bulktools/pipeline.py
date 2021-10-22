@@ -5,8 +5,8 @@ from glob import glob
 import numpy as np
 import time
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn,TimeRemainingColumn
-from os.path import exists
 from rich.console import Console
+from rich.table import Table
 from multiprocessing import Pool, Process, Manager
 import os
 from pandas.errors import EmptyDataError
@@ -59,10 +59,10 @@ def runcom(c):
     out=subprocess.check_output(c.split())
     return int(out)
    
-def run_star(n_threads,star_ref,fq):
-    name=fq.split("/")[1].split("_")[0]
+def run_star(n_threads,star_ref,fq_path,sample):
+    fqs=" ".join(glob(os.path.join(fq_path,sample+"*.gz")))
     
-    runstar="STAR --runThreadN %s --limitBAMsortRAM 10000000000 --genomeLoad LoadAndKeep --genomeDir %s --readFilesIn %s --outFileNamePrefix aligned/%s_ --readFilesCommand zcat --outSAMtype BAM SortedByCoordinate --outSAMunmapped Within --outSAMattributes Standard" %(n_threads,star_ref,fq,name)
+    runstar="STAR --runThreadN %s --limitBAMsortRAM 10000000000 --genomeLoad LoadAndKeep --genomeDir %s --readFilesIn %s --outFileNamePrefix aligned/%s_ --readFilesCommand zcat --outSAMtype BAM SortedByCoordinate --outSAMunmapped Within --outSAMattributes Standard" %(n_threads,star_ref,fqs,sample)
     proc=subprocess.Popen(runstar.split(),
                           stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE)
@@ -81,7 +81,7 @@ def gather_starlogs(f):
         l = 2 if lines[-1] == 'ALL DONE!\n' else 1
         return int(lines[-l].split("    ")[2])
 
-def run_fc(n_threads,gtf,name,bam):
+def run_fc(n_threads,gtf,bam):
     name=bam.split("/")[1].split("_")[0]
     runfc="featureCounts -T %s -a %s -g gene_name -o fc/%s.txt %s" %(n_threads,gtf,name,bam)
     proc=subprocess.Popen(runfc.split(),
@@ -89,9 +89,9 @@ def run_fc(n_threads,gtf,name,bam):
                           stderr=subprocess.STDOUT)
     proc.wait()
 
-def run_fc_par(n_threads,gtf,name):
+def run_fc_par(n_threads,gtf):
     pool = Pool()
-    func = partial(run_fc, n_threads,gtf,name)
+    func = partial(run_fc, n_threads,gtf)
     pool.map(func, glob("aligned/*.bam"))
     
 
@@ -103,11 +103,12 @@ def fc2adata(p):
     except EmptyDataError:
         pass
     
-def fc2adata_par(out):
+def fc2adata_par(out,samples):
     pool = Pool()
-    fcs=pool.map(fc2adata, glob("fc/*.txt"))
-    allcounts=pd.concat(fcs,axis=1)
-    adata=anndata.AnnData(allcounts.T)
+    fcs = pool.map(fc2adata, glob("fc/*.txt"))
+    allcounts = pd.concat(fcs,axis=1)
+    adata = anndata.AnnData(allcounts.T)
+    adata.obs_names = samples
     adata.write_h5ad(out)
 
 def main():
@@ -142,11 +143,14 @@ def main():
     adata_out = args.adata_out if args.adata_out is not None else "adata_bulk_star.h5ad"
     fq_path = args.fq_path if args.fq_path is not None else "fastq"
     cpuCount = os.cpu_count()
-    nfq=len(glob(os.path.join(fq_path,"*.gz")))
+    fastqs=glob(os.path.join(fq_path,"*.gz"))
     
-    if nfq == 0:
+    if len(fastqs) == 0:
         log.error("No fastq detected! (path: %s)" %fq_path)
         sys.exit(1)
+        
+    samples = np.unique([os.path.basename(f).split("_")[0] for f in fastqs])
+    n_samples = len(samples)
     
     console.print("Pipeline parameters:", style="bold")
     console.print("fastq files path: %s" %os.path.abspath(fq_path))
@@ -155,20 +159,20 @@ def main():
     console.print("Output adata path: %s" %os.path.abspath(adata_out))
     
     console.print("total CPU threads: %s" %cpuCount)
-    if cpuCount < nfq*int(n_threads):
+    if cpuCount < n_samples*int(n_threads):
         console.print("WARNING: current settings will use more threads than available, reducing!",
                       style="bold orange3")
-    while cpuCount < nfq*n_threads:
+    while cpuCount < n_samples*n_threads:
         n_threads = n_threads-1
-    console.print("Number of threads per fastq file: %s" %n_threads)
-    console.print("With %s fastq files, peak utilization will use %s threads" %(nfq,nfq*n_threads))
+    console.print("Number of threads per sample: %s" %n_threads)
+    console.print("With %s samples, peak utilization will use %s threads" %(n_samples,n_samples*n_threads))
     
-    def countreads(fq_path):
-        fqs=glob(os.path.join(fq_path,"*.gz"))
-        countfq=[fqcounter+" %s" %f for f in fqs]
+    def countreads(fastqs):
+        countfq=[fqcounter+" %s" %f for f in fastqs]
         pool = Pool()
         outs=pool.map(runcom, countfq)
-        return_dict[0] = dict(zip(fqs,outs))
+        df=pd.Series(outs,index=[os.path.basename(f).split("_")[0] for f in fastqs])
+        return_dict[0] = df.groupby(df.index).sum().to_dict()
     
     
     with console.status("[bold green]Counting number of reads...") as status:
@@ -176,7 +180,7 @@ def main():
         console.log("Loading reference")
         p1 = Process(target=ref_loader,args=(star_ref,))
         p1.start()
-        p2 = Process(target=countreads,args=(fq_path,))
+        p2 = Process(target=countreads,args=(fastqs,))
         p2.start()
         while p1.is_alive():
             time.sleep(.2)
@@ -184,15 +188,28 @@ def main():
         console.log("Reference loaded")
 
         p2.join()    
-
-    console.log("Aligning reads") 
+        
+    table = Table(show_header=True, header_style="bold magenta",show_lines=True) 
+    table.add_column("Samples", style="bold")
+    table.add_column("Input files")
+    table.add_column("Number of reads", justify="right")
     
-    def run_star_par(n_threads,star_ref,fq_path):
+    dct_nreads = return_dict.values()[0]
+    
+    for sample, nreads in dct_nreads.items():
+        table.add_row(
+            sample, "\n".join(glob(os.path.join(fq_path,sample+"*.gz"))), str(nreads)
+        )
+    
+    console.print(table)
+    
+    console.log("Aligning reads")
+    
+    def run_star_par(n_threads,star_ref,fq_path,samples):
         pool = Pool()
-        fqs = glob(os.path.join(fq_path,"*.gz"))
-        func = partial(run_star, n_threads,star_ref)
-        outs = pool.map(func, fqs)
-        return_dict["run_star"] = dict(zip(fqs,outs))
+        func = partial(run_star, n_threads,star_ref,fq_path)
+        outs = pool.map(func, samples)
+        return_dict["run_star"] = dict(zip(samples,outs))
 
     with Progress(SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -202,14 +219,13 @@ def main():
             console=console,
             transient=True,
             speed_estimate_period=120) as progress:
-        dct_nreads = return_dict.values()[0]
+        
         dct_task = {}
-        for k,v in dct_nreads.items():
-            name = k.split("/")[1].split("_")[0]
-            dct_task[k] = progress.add_task("[green]Aligning reads for sample %s..."%name, 
-                                            total=v)
+        for sample,nreads in dct_nreads.items():
+            dct_task[sample] = progress.add_task("[green]Aligning reads for sample %s..."%sample, 
+                                            total=nreads)
         #return_dict = manager.dict()
-        p3 = Process(target=run_star_par,args=(n_threads,star_ref,fq_path,))
+        p3 = Process(target=run_star_par,args=(n_threads,star_ref,fq_path,samples))
         p3.start()
 
         #while len(glob("aligned/*.progress.out")) != len(glob(os.path.join(fq_path,"*.gz"))):
@@ -222,16 +238,15 @@ def main():
         err = False
         errmsg=[]
         while prog:                      
-            for k,v in dct_task.items():
-                if return_dict["run_star"][k][0]!=0:
-                    progress.update(v,visible=False)
+            for sample,task in dct_task.items():
+                if return_dict["run_star"][sample][0]!=0:
+                    progress.update(task,visible=False)
                     err = True
-                    errmsg.append(return_dict["run_star"][k][1].decode('utf-8'))
-                elif len(glob("aligned/*.progress.out")) != len(glob(os.path.join(fq_path,"*.gz"))):
-                    name = k.split("/")[1].split("_")[0]
-                    progress.update(v,completed=gather_starlogs("aligned/%s_Log.progress.out" %name))
-                    if len(glob("aligned/%s_Log.final.out" %name))==1:
-                        progress.update(v,completed=dct_nreads[k])
+                    errmsg.append(return_dict["run_star"][sample][1].decode('utf-8'))
+                elif len(glob("aligned/*.progress.out")) != len(samples):
+                    progress.update(task,completed=gather_starlogs("aligned/%s_Log.progress.out" %sample))
+                    if len(glob("aligned/%s_Log.final.out" %sample))==1:
+                        progress.update(task,completed=dct_nreads[sample])
             
             if err:
                 time.sleep(.1)
@@ -243,7 +258,7 @@ def main():
                 p3b.join()
                 sys.exit(0)
             
-            if len(glob("aligned/*final*")) == len(glob(os.path.join(fq_path,"*.gz"))):
+            if len(glob("aligned/*final*")) == len(samples):
                 prog = False
             progress.refresh()
             time.sleep(1)
@@ -256,14 +271,14 @@ def main():
         os.mkdir("fc")
 
     with console.status("[bold green]Counting features from alignments...") as status:
-        p4 = Process(target=run_fc_par,args=(n_threads,gtf,name,))
+        p4 = Process(target=run_fc_par,args=(n_threads,gtf,))
         p4.start()
         p4.join()
 
     console.log("Counting done!")
 
     with console.status("[bold green]Merging results into one adata...") as status:
-        p5 = Process(target=fc2adata_par,args=(adata_out,))
+        p5 = Process(target=fc2adata_par,args=(adata_out,samples,))
         p5.start()
         p5.join()
 

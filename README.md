@@ -1,3 +1,4 @@
+[![Install and Test](https://github.com/LouisFaure/bulktools-py/actions/workflows/test.yml/badge.svg)](https://github.com/LouisFaure/bulktools-py/actions/workflows/test.yml)
 # bulktools-py
 
 Analysis pipeline for bulk data. From fastq to anndata containing count matrix.

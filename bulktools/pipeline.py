@@ -115,7 +115,8 @@ def run_fc_par(n_threads,gtf,bam_path):
 def fc2adata(p):
     try:
         df = pd.read_csv(p, sep='\t', comment='#',usecols=[0,6],index_col=0)
-        df.columns=[p.split(".")[0]]
+        name = p.split(".")[0]
+        df.columns = [name.split("/")[-1]]
         return df
     except EmptyDataError:
         pass
@@ -125,7 +126,6 @@ def fc2adata_par(out,samples):
     fcs = pool.map(fc2adata, glob("fc/*.txt"))
     allcounts = pd.concat(fcs,axis=1)
     adata = anndata.AnnData(allcounts.T)
-    adata.obs_names = samples
     adata.write_h5ad(out)
 
 def main():

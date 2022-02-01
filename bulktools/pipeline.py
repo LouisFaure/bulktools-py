@@ -200,18 +200,36 @@ def main():
         return_dict[0] = df.groupby(df.index).sum().to_dict()
     
     
-    with console.status("[bold green]Counting number of reads...") as status:
-        console.log("Loading reference")
-        p1 = Process(target=ref_loader,args=(star_ref,))
+    with Progress(SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            transient=True) as status:
+        
+        dct_task = {}
+        dct_task["counting"] = status.add_task("[bold green]Counting number of reads..")
+        p1 = Process(target=countreads,args=(fastqs,))
         p1.start()
-        p2 = Process(target=countreads,args=(fastqs,))
+        dct_task["loadindex"] = status.add_task("[bold green]Loading index...")
+        p2 = Process(target=ref_loader,args=(star_ref,))
         p2.start()
-        while p1.is_alive():
-            time.sleep(.2)
-            p1.join()
-        console.log("Reference loaded")
+        counting = True
+        loading = True
+        first = []
+        while (p1.is_alive()) | (p2.is_alive()):
+            if (not p1.is_alive()) & (counting):
+                status.update(dct_task["counting"],visible=False)
+                p1.join()
+                console.log("Counting done")
+                counting = False
+                first.append("counting")
+            if (not p2.is_alive()) & (loading):
+                status.update(dct_task["loadindex"],visible=False)
+                p2.join()
+                console.log("Reference loaded")
+                loading = False
+                first.append("loading")
 
-        p2.join()    
+    console.log("Counting done" if first[0]=="loading" else "Reference loaded")
         
     table = Table(show_header=True, header_style="bold magenta",show_lines=True) 
     table.add_column("Samples", style="bold")
@@ -226,7 +244,7 @@ def main():
         )
     
     console.print(table)
-    
+    time.sleep(1)
     console.log("Aligning reads")
     
     with Progress(SpinnerColumn(),
@@ -251,7 +269,6 @@ def main():
 
         prog = True
         err = False
-        #errmsg=[]
         while prog:
             for sample,task in dct_task.items():
                 if sample in return_dict:

@@ -92,7 +92,7 @@ def gather_starlogs(f):
     lines = a_file.readlines()
     if len(lines)<=2:
         return 0
-    if len(lines)==3 & (lines[-1] == 'ALL DONE!\n'):
+    if (len(lines)==3) & (lines[-1] == 'ALL DONE!\n'):
         return 0
     else:
         l = 2 if lines[-1] == 'ALL DONE!\n' else 1

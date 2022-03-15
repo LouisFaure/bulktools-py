@@ -42,6 +42,7 @@ parser.add_argument("--bam_path","-b", help="Path for aligned BAMs (default: ali
 parser.add_argument("--star_ref","-s", help="STAR index path.")
 parser.add_argument("--gtf","-g", help="GTF file path for featureCounts.")
 parser.add_argument("--n_threads","-n", help="number of threads per fastq file, for both STAR and featureCounts.")
+parser.add_argument("--mem","-m", help="how much Gb to pass to --limitBAMsortRAM for STAR alignment (in Gb, default 10).")
 parser.add_argument("--adata_out","-o", help="Path for the adata output (relative, default: adata_bulk_star.h5ad).")
 
 def ref_loader(star_ref):
@@ -62,10 +63,10 @@ def runcom(c):
     out=subprocess.check_output(c.split())
     return int(out)
    
-def run_star(n_threads,star_ref,fq_path,bam_path,sample):
+def run_star(n_threads,mem,star_ref,fq_path,bam_path,sample):
     fqs=" ".join(glob(os.path.join(fq_path,sample+"*.gz")))
     
-    runstar="STAR --runThreadN %s --limitBAMsortRAM 10000000000 --genomeLoad LoadAndKeep --genomeDir %s --readFilesIn %s --outFileNamePrefix %s/%s_ --readFilesCommand zcat --outSAMtype BAM SortedByCoordinate --outSAMunmapped Within --outSAMattributes Standard" %(n_threads,star_ref,fqs,bam_path,sample)
+    runstar=f"STAR --limitBAMsortRAM {mem*1024**3} --genomeLoad LoadAndKeep --readFilesCommand zcat --outSAMtype BAM SortedByCoordinate --outSAMunmapped Within --outSAMattributes Standard --runThreadN {n_threads} --genomeDir {star_ref} --readFilesIn {fqs} --outFileNamePrefix {bam_path}/{sample}_"
     proc=subprocess.Popen(runstar.split(),
                           stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE)
@@ -81,9 +82,9 @@ def run_star(n_threads,star_ref,fq_path,bam_path,sample):
         proc.wait()
         return_dict[sample]=[proc.returncode,proc.communicate()[1],runstar]
         
-def run_star_par(n_threads,star_ref,fq_path,bam_path,samples):
+def run_star_par(n_threads,mem,star_ref,fq_path,bam_path,samples):
     pool = Pool()
-    func = partial(run_star, n_threads,star_ref,fq_path,bam_path)
+    func = partial(run_star, n_threads,mem,star_ref,fq_path,bam_path)
     pool.map(func, samples)
 
 
@@ -129,7 +130,7 @@ def fc2adata_par(out,samples):
     adata.write_h5ad(out)
 
 def main():
-    console = Console()
+    console = Console(record=True)
     console.print("bulktools %s" %version,style="bold")
     args = parser.parse_args()
     
@@ -158,6 +159,7 @@ def main():
     adata_out = args.adata_out if args.adata_out is not None else "adata_bulk_star.h5ad"
     fq_path = args.fq_path if args.fq_path is not None else "fastq"
     bam_path = args.bam_path if args.bam_path is not None else "aligned"
+    mem = args.mem if args.mem is not None else 10
     cpuCount = os.cpu_count()
     fastqs=glob(os.path.join(fq_path,"*.gz"))
     
@@ -178,8 +180,8 @@ def main():
     console.print("Pipeline parameters:", style="bold")
     console.print("fastq files path: %s" %os.path.abspath(fq_path))
     console.print("bam files path: %s" %os.path.abspath(bam_path))
-    console.print("STAR reference path: %s" %star_ref)
-    console.print("GTF file path: %s" %gtf)
+    console.print("STAR reference path: %s" %os.path.abspath(star_ref))
+    console.print("GTF file path: %s" %os.path.abspath(gtf))
     console.print("Output adata path: %s" %os.path.abspath(adata_out))
     
     console.print("total CPU threads: %s" %cpuCount)
@@ -242,8 +244,10 @@ def main():
         table.add_row(
             sample, "\n".join(glob(os.path.join(fq_path,sample+"*.gz"))), str(nreads)
         )
-    
+      
     console.print(table)
+    
+    allreads=list(dct_nreads.values())
     time.sleep(1)
     console.log("Aligning reads")
     
@@ -261,7 +265,7 @@ def main():
             dct_task[sample] = progress.add_task("[green]Aligning reads for sample %s..."%sample, 
                                             total=nreads)
         
-        p3 = Process(target=run_star_par,args=(n_threads,star_ref,fq_path,bam_path,samples))
+        p3 = Process(target=run_star_par,args=(n_threads,mem,star_ref,fq_path,bam_path,samples))
         p3.start()
         
         while not os.path.isdir(bam_path):
@@ -321,3 +325,4 @@ def main():
         p5.join()
 
     console.log("Merging done!")
+    console.save_text("bt_run.log")

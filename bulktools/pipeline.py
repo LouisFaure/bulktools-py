@@ -18,6 +18,7 @@ from argparse import RawTextHelpFormatter
 from functools import partial
 from shutil import which
 import concurrent.futures
+import math
 
 import logging
 from rich.logging import RichHandler
@@ -63,7 +64,8 @@ def runcom(c):
     out=subprocess.check_output(c.split())
     return int(out)
    
-def run_star(n_threads,mem,star_ref,fq_path,bam_path,sample):
+def run_star(mem,star_ref,fq_path,bam_path,thread_sample):
+    sample, n_threads = thread_sample
     fqs=" ".join(glob(os.path.join(fq_path,sample+"*.gz")))
     
     runstar=f"STAR --limitBAMsortRAM {mem*1024**3} --genomeLoad LoadAndKeep --readFilesCommand zcat --outSAMtype BAM SortedByCoordinate --outSAMunmapped Within --outSAMattributes Standard --runThreadN {n_threads} --genomeDir {star_ref} --readFilesIn {fqs} --outFileNamePrefix {bam_path}/{sample}_"
@@ -82,10 +84,14 @@ def run_star(n_threads,mem,star_ref,fq_path,bam_path,sample):
         proc.wait()
         return_dict[sample]=[proc.returncode,proc.communicate()[1],runstar]
         
-def run_star_par(n_threads,mem,star_ref,fq_path,bam_path,samples):
-    pool = Pool()
-    func = partial(run_star, n_threads,mem,star_ref,fq_path,bam_path)
-    pool.map(func, samples)
+def run_star_par(mem,star_ref,fq_path,bam_path,thread_samples):
+    n_processes = sum([n for n in thread_samples.values()])
+    if n_processes>os.cpu_count():
+        n_processes = os.cpu_count()-1
+    pool = Pool(n_processes)
+    func = partial(run_star,mem,star_ref,fq_path,bam_path)
+    thread_samples = list(thread_samples.items())
+    pool.map(func, thread_samples)
 
 
 def gather_starlogs(f):
@@ -99,18 +105,21 @@ def gather_starlogs(f):
         l = 2 if lines[-1] == 'ALL DONE!\n' else 1
         return int(lines[-l].split("    ")[2])
 
-def run_fc(n_threads,gtf,bam):
-    name=bam.split("/")[1].split("_")[0]
-    runfc="featureCounts -T %s -a %s -g gene_name -o fc/%s.txt %s" %(n_threads,gtf,name,bam)
-    proc=subprocess.Popen(runfc.split(),
+def run_fc(gtf,fc_thread):
+    bam, n_threads = fc_thread
+    name = bam.split("/")[1].split("_")[0]
+    runfc = "featureCounts -T %s -a %s -g gene_name -o fc/%s.txt %s" %(n_threads,gtf,name,bam)
+    proc = subprocess.Popen(runfc.split(),
                           stdout=subprocess.DEVNULL,
                           stderr=subprocess.STDOUT)
     proc.wait()
 
-def run_fc_par(n_threads,gtf,bam_path):
+def run_fc_par(thread_samples,gtf,bam_path):
+    bams = np.array(glob(f"{bam_path}/*.bam"))
+    fc_threads = [(bam,thread_samples[os.path.basename(bam).split("_")[0]]) for bam in bams]
     pool = Pool()
-    func = partial(run_fc, n_threads,gtf)
-    pool.map(func, glob(f"{bam_path}/*.bam"))
+    func = partial(run_fc,gtf)
+    pool.map(func, fc_threads)
     
 
 def fc2adata(p):
@@ -161,7 +170,7 @@ def main():
     bam_path = args.bam_path if args.bam_path is not None else "aligned"
     mem = args.mem if args.mem is not None else 10
     cpuCount = os.cpu_count()
-    fastqs=glob(os.path.join(fq_path,"*.gz"))
+    fastqs = glob(os.path.join(fq_path,"*.gz"))
     
     if os.path.isdir(bam_path):
         if os.listdir(bam_path):
@@ -185,14 +194,13 @@ def main():
     console.print("Output adata path: %s" %os.path.abspath(adata_out))
     
     console.print("total CPU threads: %s" %cpuCount)
-    if cpuCount < n_samples*int(n_threads):
+    if cpuCount < int(n_threads):
         console.print("WARNING: current settings will use more threads than available cores, reducing!",
                       style="bold orange3")
 
-    while (cpuCount < n_samples*n_threads) & (n_threads!=1):
+    while (cpuCount < n_threads) & (n_threads!=1):
         n_threads = n_threads-1
-    console.print("Number of threads per sample: %s" %n_threads)
-    console.print("With %s samples, peak utilization will use %s threads" %(n_samples,n_samples*n_threads))
+    console.print("Total number of threads used: %s" %n_threads)
     
     def countreads(fastqs):
         countfq=[fqcounter+" %s" %f for f in fastqs]
@@ -247,9 +255,28 @@ def main():
       
     console.print(table)
     
-    allreads=list(dct_nreads.values())
+    nreads=list(dct_nreads.values())
     time.sleep(1)
     console.log("Aligning reads")
+
+    if n_threads<len(nreads):
+        ncores=[1 for i in range(len(nreads))]
+    else:
+        split=sum(nreads)/n_threads
+        repartition=np.array(nreads)/split
+        
+        ncores=np.array([math.modf(rep)[1] for rep in repartition])
+        fracs=np.array([math.modf(rep)[0] for rep in repartition])
+        fracs=np.argsort(fracs)[::-1]
+
+        threads_to_assign=(n_threads-sum(ncores)).astype(int)
+
+        for t in range(threads_to_assign):
+            ncores[fracs[t]]=ncores[fracs[t]]+1
+            
+        ncores=[int(n) for n in ncores]
+        
+    thread_samples = dict(zip(samples,ncores))
     
     with Progress(SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -262,10 +289,10 @@ def main():
         
         dct_task = {}
         for sample,nreads in dct_nreads.items():
-            dct_task[sample] = progress.add_task("[green]Aligning reads for sample %s..."%sample, 
+            dct_task[sample] = progress.add_task(f"[green]Aligning reads for sample {sample} ({thread_samples[sample]} threads)...", 
                                             total=nreads)
         
-        p3 = Process(target=run_star_par,args=(n_threads,mem,star_ref,fq_path,bam_path,samples))
+        p3 = Process(target=run_star_par,args=(mem,star_ref,fq_path,bam_path,thread_samples))
         p3.start()
         
         while not os.path.isdir(bam_path):
@@ -311,9 +338,8 @@ def main():
 
     if os.path.isdir("fc")==False:
         os.mkdir("fc")
-
     with console.status("[bold green]Counting features from alignments...") as status:
-        p4 = Process(target=run_fc_par,args=(n_threads,gtf,bam_path,))
+        p4 = Process(target=run_fc_par,args=(thread_samples,gtf,bam_path,))
         p4.start()
         p4.join()
 

@@ -31,7 +31,7 @@ optional arguments:
                         STAR index path.
   --gtf GTF, -g GTF     GTF file path for featureCounts.
   --n_threads N_THREADS, -n N_THREADS
-                        number of threads per fastq file, for both STAR and featureCounts.
+                        Total number of threads to use for both STAR and featureCounts.
   --mem MEM, -m MEM     how much Gb to pass to --limitBAMsortRAM for STAR alignment (in Gb, default 10).
   --adata_out ADATA_OUT, -o ADATA_OUT
                         Path for the adata output (relative, default: adata_bulk_star.h5ad).

@@ -42,7 +42,7 @@ parser.add_argument("--fq_path","-f", help="Path for input fastq files (relative
 parser.add_argument("--bam_path","-b", help="Path for aligned BAMs (default: aligned).")
 parser.add_argument("--star_ref","-s", help="STAR index path.")
 parser.add_argument("--gtf","-g", help="GTF file path for featureCounts.")
-parser.add_argument("--n_threads","-n", help="number of threads per fastq file, for both STAR and featureCounts.")
+parser.add_argument("--n_threads","-n", help="Total number of threads to use for both STAR and featureCounts.")
 parser.add_argument("--mem","-m", help="how much Gb to pass to --limitBAMsortRAM for STAR alignment (in Gb, default 10).")
 parser.add_argument("--adata_out","-o", help="Path for the adata output (relative, default: adata_bulk_star.h5ad).")
 

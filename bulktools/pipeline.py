@@ -8,7 +8,7 @@ import time
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn,TimeRemainingColumn
 from rich.console import Console
 from rich.table import Table
-from multiprocessing import Pool, Process, Manager
+from multiprocess import Pool, Process, Manager
 import os
 from pandas.errors import EmptyDataError
 import pandas as pd
@@ -45,6 +45,7 @@ parser.add_argument("--gtf","-g", help="GTF file path for featureCounts.")
 parser.add_argument("--n_threads","-n", help="Total number of threads to use for both STAR and featureCounts.")
 parser.add_argument("--mem","-m", help="how much Gb to pass to --limitBAMsortRAM for STAR alignment (in Gb, default 10).")
 parser.add_argument("--adata_out","-o", help="Path for the adata output (relative, default: adata_bulk_star.h5ad).")
+
 
 def ref_loader(star_ref):
     loadref="STAR --genomeLoad LoadAndExit --genomeDir %s" % star_ref
@@ -212,7 +213,7 @@ def main():
     
     with Progress(SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
-            console=console,
+            console=Console(record=False),
             transient=True) as status:
         
         dct_task = {}
@@ -246,7 +247,7 @@ def main():
     table.add_column("Input files")
     table.add_column("Number of reads", justify="right")
     
-    dct_nreads = return_dict.values()[0]
+    dct_nreads = list(return_dict.values())[0]
     
     for sample, nreads in dct_nreads.items():
         table.add_row(
@@ -283,7 +284,7 @@ def main():
             BarColumn(),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TimeRemainingColumn(),
-            console=console,
+            console=Console(record=False),
             transient=True,
             speed_estimate_period=120) as progress:
         
@@ -335,17 +336,17 @@ def main():
     p3b = Process(target=ref_remover,args=(star_ref,))
     p3b.start()
     console.log("Alignment done!") 
-
+    console.log("Counting reads")
     if os.path.isdir("fc")==False:
         os.mkdir("fc")
-    with console.status("[bold green]Counting features from alignments...") as status:
+    with Console(record=False).status("[bold green]Counting features from alignments...") as status:
         p4 = Process(target=run_fc_par,args=(thread_samples,gtf,bam_path,))
         p4.start()
         p4.join()
 
     console.log("Counting done!")
 
-    with console.status("[bold green]Merging results into one adata...") as status:
+    with Console(record=False).status("[bold green]Merging results into one adata...") as status:
         p5 = Process(target=fc2adata_par,args=(adata_out,samples,))
         p5.start()
         p5.join()

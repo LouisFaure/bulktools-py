@@ -16,7 +16,7 @@ import anndata
 import argparse
 from argparse import RawTextHelpFormatter
 from functools import partial
-from shutil import which
+from shutil import which, rmtree
 import concurrent.futures
 import math
 
@@ -38,6 +38,7 @@ help = 'Full bulk pipeline, from fastq to adata count matrix!\n'\
     'Performs the following: fastq -STAR-> bam -featureCounts-> anndata.h5ad'
 
 parser = argparse.ArgumentParser(description=help,formatter_class=RawTextHelpFormatter)
+parser.add_argument("cleanup", help="remove temporary folders.",nargs="?")
 parser.add_argument("--fq_path","-f", help="Path for input fastq files (relative, default: fastq).")
 parser.add_argument("--bam_path","-b", help="Path for aligned BAMs (default: aligned).")
 parser.add_argument("--star_ref","-s", help="STAR index path.")
@@ -143,6 +144,26 @@ def main():
     console = Console(record=True)
     console.print("bulktools %s" %version,style="bold")
     args = parser.parse_args()
+    
+    if args.cleanup:
+        log.info("Cleaning up 🧹")
+        folders_to_remove = ["aligned", "fc"]
+        files_to_remove = ["Log.final.out", "Log.out", 
+                           "Log.progress.out", "SJ.out.tab"]
+
+        for folder in folders_to_remove:
+            if os.path.exists(folder):
+                rmtree(folder)
+            else:
+                log.info(f"The folder {folder} does not exist")
+        
+        for file in files_to_remove:
+            if os.path.exists(file):
+                os.remove(file)
+            else:
+                log.info(f"The file {file} does not exist")
+        log.info("Done ✨")
+        sys.exit(0)
     
     
     if which("STAR") is None:

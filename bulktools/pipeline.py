@@ -44,7 +44,6 @@ parser.add_argument("--bam_path","-b", help="Path for aligned BAMs (default: ali
 parser.add_argument("--star_ref","-s", help="STAR index path.")
 parser.add_argument("--gtf","-g", help="GTF file path for featureCounts.")
 parser.add_argument("--n_threads","-n", help="Total number of threads to use for both STAR and featureCounts.")
-parser.add_argument("--mem","-m", help="how much Gb to pass to --limitBAMsortRAM for STAR alignment (in Gb, default 10).")
 parser.add_argument("--adata_out","-o", help="Path for the adata output (relative, default: adata_bulk_star.h5ad).")
 
 
@@ -66,11 +65,11 @@ def runcom(c):
     out=subprocess.check_output(c.split())
     return int(out)
    
-def run_star(mem,star_ref,fq_path,bam_path,thread_sample):
+def run_star(star_ref,fq_path,bam_path,thread_sample):
     sample, n_threads = thread_sample
     fqs=" ".join(glob(os.path.join(fq_path,sample+"*.gz")))
     
-    runstar=f"STAR --limitBAMsortRAM {mem*1024**3} --genomeLoad LoadAndKeep --readFilesCommand gunzip -c --outSAMtype BAM SortedByCoordinate --outSAMunmapped Within --outSAMattributes Standard --runThreadN {n_threads} --genomeDir {star_ref} --readFilesIn {fqs} --outFileNamePrefix {bam_path}/{sample}_"
+    runstar=f"STAR --genomeLoad LoadAndKeep --readFilesCommand gunzip -c --outSAMtype BAM Unsorted --outSAMunmapped Within --outSAMattributes Standard --runThreadN {n_threads} --genomeDir {star_ref} --readFilesIn {fqs} --outFileNamePrefix {bam_path}/{sample}_"
     proc=subprocess.Popen(runstar.split(),
                           stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE)
@@ -86,12 +85,12 @@ def run_star(mem,star_ref,fq_path,bam_path,thread_sample):
         proc.wait()
         return_dict[sample]=[proc.returncode,proc.communicate()[1],runstar]
         
-def run_star_par(mem,star_ref,fq_path,bam_path,thread_samples):
+def run_star_par(star_ref,fq_path,bam_path,thread_samples):
     n_processes = sum([n for n in thread_samples.values()])
     if n_processes>os.cpu_count():
         n_processes = os.cpu_count()-1
     pool = Pool(n_processes)
-    func = partial(run_star,mem,star_ref,fq_path,bam_path)
+    func = partial(run_star,star_ref,fq_path,bam_path)
     thread_samples = list(thread_samples.items())
     pool.map(func, thread_samples)
 
@@ -190,7 +189,6 @@ def main():
     adata_out = args.adata_out if args.adata_out is not None else "adata_bulk_star.h5ad"
     fq_path = args.fq_path if args.fq_path is not None else "fastq"
     bam_path = args.bam_path if args.bam_path is not None else "aligned"
-    mem = args.mem if args.mem is not None else 10
     cpuCount = os.cpu_count()
     fastqs = glob(os.path.join(fq_path,"*.gz"))
     
@@ -314,7 +312,7 @@ def main():
             dct_task[sample] = progress.add_task(f"[green]Aligning reads for sample {sample} ({thread_samples[sample]} threads)...", 
                                             total=nreads)
         
-        p3 = Process(target=run_star_par,args=(mem,star_ref,fq_path,bam_path,thread_samples))
+        p3 = Process(target=run_star_par,args=(star_ref,fq_path,bam_path,thread_samples))
         p3.start()
         
         while not os.path.isdir(bam_path):

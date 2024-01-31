@@ -70,7 +70,7 @@ def run_star(mem,star_ref,fq_path,bam_path,thread_sample):
     sample, n_threads = thread_sample
     fqs=" ".join(glob(os.path.join(fq_path,sample+"*.gz")))
     
-    runstar=f"STAR --limitBAMsortRAM {mem*1024**3} --genomeLoad LoadAndKeep --readFilesCommand zcat --outSAMtype BAM SortedByCoordinate --outSAMunmapped Within --outSAMattributes Standard --runThreadN {n_threads} --genomeDir {star_ref} --readFilesIn {fqs} --outFileNamePrefix {bam_path}/{sample}_"
+    runstar=f"STAR --limitBAMsortRAM {mem*1024**3} --genomeLoad LoadAndKeep --readFilesCommand gunzip -c --outSAMtype BAM SortedByCoordinate --outSAMunmapped Within --outSAMattributes Standard --runThreadN {n_threads} --genomeDir {star_ref} --readFilesIn {fqs} --outFileNamePrefix {bam_path}/{sample}_"
     proc=subprocess.Popen(runstar.split(),
                           stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE)

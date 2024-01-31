@@ -1,8 +1,8 @@
 [![Install and Test](https://github.com/LouisFaure/bulktools-py/actions/workflows/test.yml/badge.svg)](https://github.com/LouisFaure/bulktools-py/actions/workflows/test.yml)
+
 # bulktools-py
 
 Analysis pipeline for bulk data. From fastq to anndata containing count matrix.
-
 
 ## Installation
 
@@ -28,15 +28,15 @@ To work by default, the data structure should look like this:
 ### Command
 
 ```bash
-bt -n 2 -s star_index -g genes.gtf
+bt -s star_index -g genes.gtf
 ```
 
 
 ## Full usage
 
 ```
-usage: bt [-h] [--fq_path FQ_PATH] [--bam_path BAM_PATH] [--star_ref STAR_REF] [--gtf GTF] [--n_threads N_THREADS]
-          [--mem MEM] [--adata_out ADATA_OUT]
+usage: bt [-h] [--fq_path FQ_PATH] [--bam_path BAM_PATH] [--star_ref STAR_REF] [--gtf GTF]
+          [--n_threads N_THREADS] [--adata_out ADATA_OUT]
           [cleanup]
 
 Full bulk pipeline, from fastq to adata count matrix!
@@ -56,7 +56,6 @@ optional arguments:
   --gtf GTF, -g GTF     GTF file path for featureCounts.
   --n_threads N_THREADS, -n N_THREADS
                         Total number of threads to use for both STAR and featureCounts.
-  --mem MEM, -m MEM     how much Gb to pass to --limitBAMsortRAM for STAR alignment (in Gb, default 10).
   --adata_out ADATA_OUT, -o ADATA_OUT
                         Path for the adata output (relative, default: adata_bulk_star.h5ad).
 ```

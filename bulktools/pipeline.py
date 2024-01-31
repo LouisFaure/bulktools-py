@@ -38,7 +38,7 @@ help = 'Full bulk pipeline, from fastq to adata count matrix!\n'\
     'Performs the following: fastq -STAR-> bam -featureCounts-> anndata.h5ad'
 
 parser = argparse.ArgumentParser(description=help,formatter_class=RawTextHelpFormatter)
-parser.add_argument("cleanup", help="remove temporary folders.",nargs="?")
+parser.add_argument("cleanup", help="remove temporary folders and files.",nargs="?")
 parser.add_argument("--fq_path","-f", help="Path for input fastq files (relative, default: fastq).")
 parser.add_argument("--bam_path","-b", help="Path for aligned BAMs (default: aligned).")
 parser.add_argument("--star_ref","-s", help="STAR index path.")
@@ -148,7 +148,7 @@ def main():
     if args.cleanup:
         log.info("Cleaning up 🧹")
         folders_to_remove = ["aligned", "fc"]
-        files_to_remove = ["Log.final.out", "Log.out", 
+        files_to_remove = ["Aligned.out.sam","Log.final.out", "Log.out", 
                            "Log.progress.out", "SJ.out.tab"]
 
         for folder in folders_to_remove:

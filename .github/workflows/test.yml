@@ -25,6 +25,7 @@ jobs:
          wget https://github.com/LouisFaure/bulktools-py/raw/main/test/fastq.tar && tar xvf fastq.tar
          wget https://github.com/LouisFaure/bulktools-py/raw/main/test/genes.gtf.gz
          wget https://github.com/LouisFaure/bulktools-py/raw/main/test/star_test.tar.gz && tar xvf star_test.tar.gz
+         wget https://github.com/LouisFaure/bulktools-py/raw/main/test/assert.py
     - name: Install dependencies
       shell: bash -l {0}
       run: conda install -c bioconda star subread
@@ -33,4 +34,4 @@ jobs:
       run: pip install . && bt -h && ls
     - name: Run bt
       shell: bash -l {0}
-      run: bt --star_ref star_test --gtf genes.gtf.gz && python -c "import anndata;print(anndata.read_h5ad('adata_bulk_star.h5ad'))"
+      run: bt --star_ref star_test --gtf genes.gtf.gz && python assert.py
